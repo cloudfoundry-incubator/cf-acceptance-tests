@@ -79,6 +79,7 @@ type config struct {
 	IncludeSSO                        *bool `json:"include_sso"`
 	IncludeSecurityGroups             *bool `json:"include_security_groups"`
 	IncludeServices                   *bool `json:"include_services"`
+	IncludeServiceInstanceSharing     *bool `json:"include_service_instance_sharing"`
 	IncludeSsh                        *bool `json:"include_ssh"`
 	IncludeTasks                      *bool `json:"include_tasks"`
 	IncludeV3                         *bool `json:"include_v3"`
@@ -156,6 +157,7 @@ func getDefaults() config {
 	defaults.IncludeSsh = ptrToBool(false)
 	defaults.IncludeTasks = ptrToBool(false)
 	defaults.IncludeZipkin = ptrToBool(false)
+	defaults.IncludeServiceInstanceSharing = ptrToBool(false)
 
 	defaults.UseHttp = ptrToBool(false)
 	defaults.UseExistingUser = ptrToBool(false)
@@ -383,6 +385,9 @@ func validateConfig(config *config) Errors {
 	}
 	if config.IncludeServices == nil {
 		errs.Add(fmt.Errorf("* 'include_services' must not be null"))
+	}
+	if config.IncludeServiceInstanceSharing == nil {
+		errs.Add(fmt.Errorf("* 'include_service_instance_sharing' must not be null"))
 	}
 	if config.IncludeSsh == nil {
 		errs.Add(fmt.Errorf("* 'include_ssh' must not be null"))
@@ -832,6 +837,10 @@ func (c *config) GetIncludeCapiNoBridge() bool {
 
 func (c *config) GetIncludeCredHub() bool {
 	return *c.IncludeCredHub
+}
+
+func (c *config) GetIncludeServiceInstanceSharing() bool {
+	return *c.IncludeServiceInstanceSharing
 }
 
 func (c *config) GetRubyBuildpackName() string {
