@@ -87,7 +87,7 @@ var _ = ServicesDescribe("Service Instance Sharing", func() {
 			}
 		})
 
-		It("allows User B to bind an app to the shared service instance", func() {
+		It("allows User B to bind an app to the shared service instance only until the service is unshared", func() {
 			workflowhelpers.AsUser(TestSetup.RegularUserContext(), Config.DefaultTimeoutDuration(), func() {
 				By("Asserting the User B can see the shared service")
 				spaceCmd := cf.Cf("services").Wait(Config.DefaultTimeoutDuration())
@@ -117,6 +117,29 @@ var _ = ServicesDescribe("Service Instance Sharing", func() {
 				json.Unmarshal([]byte(envJSON), &envVars)
 
 				Expect(envVars["VCAP_SERVICES"]).To(ContainSubstring("credentials"))
+
+				By("Asserting the User B can unbind from the shared service")
+				unbindService := cf.Cf("unbind-service", appName, serviceInstanceName).Wait(Config.DefaultTimeoutDuration())
+				Expect(unbindService).To(Exit(0), "failed unbinding app to service")
+				Expect(envVars["VCAP_SERVICES"]).ToNot(ContainSubstring("credentials"))
+			})
+
+			workflowhelpers.AsUser(TestSetup.AdminUserContext(), Config.DefaultTimeoutDuration(), func() {
+				By("User A, unsharing the service instance in User B's space")
+				serviceInstanceGuid = getGuidFor("service", serviceInstanceName)
+				userBSpaceGuid := getGuidFor("space", TestSetup.RegularUserContext().Space)
+
+				unShareSpace := cf.Cf("curl",
+					fmt.Sprintf("/v3/service_instances/%s/relationships/shared_spaces/%s", serviceInstanceGuid, userBSpaceGuid),
+					"-X", "DELETE")
+				Eventually(unShareSpace).Should(Exit(0))
+			})
+
+			workflowhelpers.AsUser(TestSetup.RegularUserContext(), Config.DefaultTimeoutDuration(), func() {
+				By("Asserting the User B can no longer see the service after it has been unshared")
+				spaceCmd := cf.Cf("services").Wait(Config.DefaultTimeoutDuration())
+				Expect(spaceCmd).To(Exit(0))
+				Expect(spaceCmd).ToNot(Say(serviceInstanceName))
 			})
 		})
 	})
