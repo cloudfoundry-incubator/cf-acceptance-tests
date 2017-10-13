@@ -125,15 +125,16 @@ var _ = ServicesDescribe("Service Instance Sharing", func() {
 				orgName := TestSetup.RegularUserContext().Org
 				spaceName := TestSetup.RegularUserContext().Space
 
-				target := cf.Cf("target", "-o", orgName, "-s", spaceName)
-				Eventually(target).Should(Exit(0))
+				target := cf.Cf("target", "-o", orgName, "-s", spaceName).Wait(Config.DefaultTimeoutDuration())
+				Expect(target).To(Exit(0))
 
 				userBSpaceGuid := getGuidFor("space", TestSetup.RegularUserContext().Space)
 
 				unShareSpace := cf.Cf("curl",
 					fmt.Sprintf("/v3/service_instances/%s/relationships/shared_spaces/%s", serviceInstanceGuid, userBSpaceGuid),
-					"-X", "DELETE")
-				Eventually(unShareSpace).Should(Exit(0))
+					"-X", "DELETE").Wait(Config.DefaultTimeoutDuration())
+
+				Expect(unShareSpace).To(Exit(0))
 				Expect(unShareSpace).ToNot(Say("errors"))
 			})
 
