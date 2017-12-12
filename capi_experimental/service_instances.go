@@ -52,7 +52,7 @@ var _ = CapiExperimentalDescribe("service instances", func() {
 		Expect(createService2).To(Exit(0))
 	})
 
-	It("Lists the service instances", func() {
+	FIt("Lists the service instances", func() {
 		expectedResources := []ServiceInstance{
 			{Name: serviceInstance1Name},
 			{Name: serviceInstance2Name},
