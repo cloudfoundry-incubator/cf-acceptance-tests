@@ -90,7 +90,7 @@ var _ = ServiceInstanceSharingDescribe("Service Instance Sharing", func() {
 			}
 		})
 
-		It("allows User B to view the shared service", func() {
+		FIt("allows User B to view the shared service", func() {
 			workflowhelpers.AsUser(TestSetup.RegularUserContext(), Config.DefaultTimeoutDuration(), func() {
 				By("Asserting the User B sees the service instance listed in `cf services`")
 				servicesCmd := cf.Cf("services").Wait(Config.DefaultTimeoutDuration())
