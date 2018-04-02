@@ -3,6 +3,7 @@ package services_test
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/cloudfoundry/cf-acceptance-tests/cats_suite_helpers"
@@ -334,6 +335,88 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 		})
 
 		Context("when there is an existing service instance", func() {
+			var appName string
+
+			BeforeEach(func() {
+				instanceName = random_name.CATSRandomName("SVC")
+				createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[2].Name, instanceName).Wait(Config.DefaultTimeoutDuration())
+				Expect(createService).To(Exit(0))
+				Expect(createService).To(Say("Create in progress."))
+
+				waitForAsyncOperationToComplete(broker, instanceName)
+
+				appName = random_name.CATSRandomName("APP")
+				createApp := cf.Cf("push",
+					appName,
+					"--no-start",
+					"-b", Config.GetBinaryBuildpackName(),
+					"-m", DEFAULT_MEMORY_LIMIT,
+					"-p", assets.NewAssets().Catnip,
+					"-c", "./catnip",
+					"-d", Config.GetAppsDomain()).Wait(Config.DefaultTimeoutDuration())
+				Expect(createApp).To(Exit(0), "failed creating app")
+				app_helpers.SetBackend(appName)
+				Expect(cf.Cf("start", appName).Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+			})
+
+			AfterEach(func() {
+				app_helpers.AppReport(appName, Config.DefaultTimeoutDuration())
+				Expect(cf.Cf("delete", appName, "-f", "-r").Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+			})
+
+			FIt("can bind asynchronously a service to app and check app env and events", func() {
+				appGUID := getGuidFor("app", appName)
+				serviceGUID := getGuidFor("service", instanceName)
+
+				bindService := cf.Cf("curl", "/v2/service_bindings?accepts_incomplete=true", "-X", "POST", "-d", fmt.Sprintf(`'{ "app_guid": "%s", "service_instance_guid": "%s" }'`, appGUID, serviceGUID)).Wait(Config.DefaultTimeoutDuration())
+				Expect(bindService).To(Exit(0), "failed to asynchroniously bind service")
+
+				type lastOperation struct {
+					State string
+				}
+
+				type entity struct {
+					LastOperation lastOperation `json:"last_operation"`
+				}
+
+				type metadata struct {
+					URL string
+				}
+
+				type bindingResponse struct {
+					Entity   entity
+					Metadata metadata
+				}
+
+				var bindingResult bindingResponse
+				json.Unmarshal(bindService.Out.Contents(), &bindingResult)
+				// TODO error unmarshaling?
+
+				Eventually(func() string {
+					bindingDetails := cf.Cf("curl", bindingResult.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
+					Expect(bindingDetails).To(Exit(0), "failed getting service binding details")
+
+					var bindingRes bindingResponse
+					json.Unmarshal(bindingDetails.Out.Contents(), &bindingRes)
+					// TODO error unmarshaling?
+					return bindingRes.Entity.LastOperation.State
+				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("succeeded"))
+
+				// TODO how to check for binding_create event?
+				// checkForEvents(appName, []string{"audit.service_binding.create"})
+
+				restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
+				Expect(restageApp).To(Exit(0), "failed restaging app")
+
+				checkForEvents(appName, []string{"audit.app.restage"})
+
+				appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
+				Expect(appEnv).To(Exit(0), "failed get env for app")
+				Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
+			})
+		})
+
+		Context("when there is an existing service instance", func() {
 			tags := "['tag1', 'tag2']"
 			type Params struct{ Param1 string }
 			params, _ := json.Marshal(Params{Param1: "value"})
@@ -471,4 +554,13 @@ func checkForEvents(name string, eventNames []string) {
 	for _, eventName := range eventNames {
 		Expect(events).To(Say(eventName), "failed to find event")
 	}
+}
+
+func getGuidFor(resourceType, resourceName string) string {
+	session := cf.Cf(resourceType, resourceName, "--guid").Wait(Config.DefaultTimeoutDuration())
+
+	// temporary for: https://github.com/cloudfoundry/cli/issues/1271
+	out := string(session.Out.Contents())
+	outs := strings.Split(out, "\n")
+	return strings.TrimSpace(outs[len(outs)-2])
 }

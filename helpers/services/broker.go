@@ -223,6 +223,8 @@ func (b ServiceBroker) ToJSON() string {
 		"<fake-async-plan-guid>", b.AsyncPlans[0].ID,
 		"<fake-async-plan-2>", b.AsyncPlans[1].Name,
 		"<fake-async-plan-2-guid>", b.AsyncPlans[1].ID,
+		"<fake-async-plan-3>", b.AsyncPlans[2].Name,
+		"<fake-async-plan-3-guid>", b.AsyncPlans[2].ID,
 		"\"<fake-plan-schema>\"", string(planSchema),
 	)
 
