@@ -264,7 +264,7 @@ class ServiceBroker < Sinatra::Base
     json_body = JSON.parse(request.body.read)
 
     service_binding = $datasource.create_service_binding(instance_id, binding_id, json_body)
-    respond_with_behavior($datasource.behavior_for_type(:bind, service_binding['binding_data']['plan_id']))
+    respond_with_behavior($datasource.behavior_for_type(:bind, service_binding['binding_data']['plan_id']), params[:accepts_incomplete])
   end
 
   # delete service binding

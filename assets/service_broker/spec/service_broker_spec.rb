@@ -147,6 +147,68 @@ describe ServiceBroker do
     end
   end
 
+  describe 'PUT /v2/service_instances/:service_id/service_bindings/:binding_id' do
+    it 'returns 201 with a JSON body' do
+      put '/v2/service_instances/fakeIDThough/service_bindings/fakeBindingID', {}.to_json
+      expect(last_response.status).to eq(201)
+      expect(JSON.parse(last_response.body)).to be
+    end
+
+    context 'when the plan is configured' do
+      before do
+        config = {
+            max_fetch_service_instance_requests: 1,
+            behaviors: {
+                bind: {
+                    'fake-async-plan-guid' => {
+                        sleep_seconds: 0,
+                        async_only: true,
+                        status: 202,
+                        body: {}
+                    },
+                    default: {
+                        sleep_seconds: 0,
+                        status: 200,
+                        body: {}
+                    }
+                }
+            }
+        }.to_json
+
+        post '/config', config
+      end
+
+      context 'overwrites default behavior' do
+        it 'returns 200 with empty body' do
+          put '/v2/service_instances/fakeIDThough/service_bindings/fakeBindingID', {}.to_json
+
+          expect(last_response.status).to eq(200)
+          expect(JSON.parse(last_response.body)).to be_empty
+        end
+      end
+
+      context 'request is for an async plan' do
+        it 'returns as usual if it does include accepts_incomplete' do
+          put '/v2/service_instances/fake-guid/service_bindings/fake-binding-guid?accepts_incomplete=true', {plan_id: 'fake-async-plan-guid'}.to_json
+
+          expect(last_response.status).to eq(202)
+        end
+
+        it 'rejects request if it does not include accepts_incomplete' do
+          put '/v2/service_instances/fake-guid/service_bindings/fake-binding-guid', {plan_id: 'fake-async-plan-guid'}.to_json
+
+          expect(last_response.status).to eq(422)
+          expect(last_response.body).to eq(
+                                            {
+                                                'error' => 'AsyncRequired',
+                                                'description' => 'This service plan requires client support for asynchronous service operations.'
+                                            }.to_json
+                                        )
+        end
+      end
+    end
+  end
+
   describe 'DELETE /v2/service_instances/:id' do
     before do
       put '/v2/service_instances/fake-guid?accepts_incomplete=true', {plan_id: 'fake-async-plan-guid'}.to_json

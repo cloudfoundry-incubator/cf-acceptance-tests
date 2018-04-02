@@ -111,7 +111,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				})
 
 				It("fetch the configuration parameters", func() {
-					instanceGUID := getServiceInstanceGuid(instanceName)
+					instanceGUID := getGuidFor("service-instance", instanceName)
 					configParams := cf.Cf("curl", fmt.Sprintf("/v2/service_instances/%s/parameters", instanceGUID)).Wait(Config.DefaultTimeoutDuration())
 					Expect(configParams).To(Exit(0), "failed to curl fetch binding parameters")
 					Expect(configParams).To(Say("\"param1\": \"value\""))
@@ -214,7 +214,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 						})
 
 						It("can retrieve parameters", func() {
-							serviceKeyGUID := getServiceKeyGUID(instanceName, keyName)
+							serviceKeyGUID := getGuidFor("service-key", instanceName, keyName)
 							paramsEndpoint := fmt.Sprintf("/v2/service_keys/%s/parameters", serviceKeyGUID)
 
 							fetchServiceKeyParameters := cf.Cf("curl", paramsEndpoint).Wait(Config.DefaultTimeoutDuration())
@@ -292,7 +292,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 
 					It("can retrieve parameters", func() {
 						appGUID := app_helpers.GetAppGuid(appName)
-						serviceInstanceGUID := getServiceInstanceGuid(instanceName)
+						serviceInstanceGUID := getGuidFor("service-instance", instanceName)
 						paramsEndpoint := getBindingParamsEndpoint(appGUID, serviceInstanceGUID)
 
 						fetchBindingParameters := cf.Cf("curl", paramsEndpoint).Wait(Config.DefaultTimeoutDuration())
@@ -355,6 +355,88 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 			Expect(serviceInfo).To(Say("[S|s]tatus:\\s+create succeeded"))
 			Expect(serviceInfo).To(Say("[M|m]essage:\\s+100 percent done"))
 			Expect(serviceInfo.Out.Contents()).To(MatchRegexp(`"tags":\s*\[\n.*tag1.*\n.*tag2.*\n.*\]`))
+		})
+
+		Context("when there is an existing service instance", func() {
+			var appName string
+
+			BeforeEach(func() {
+				instanceName = random_name.CATSRandomName("SVC")
+				createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[2].Name, instanceName).Wait(Config.DefaultTimeoutDuration())
+				Expect(createService).To(Exit(0))
+				Expect(createService).To(Say("Create in progress."))
+
+				waitForAsyncOperationToComplete(broker, instanceName)
+
+				appName = random_name.CATSRandomName("APP")
+				createApp := cf.Cf("push",
+					appName,
+					"--no-start",
+					"-b", Config.GetBinaryBuildpackName(),
+					"-m", DEFAULT_MEMORY_LIMIT,
+					"-p", assets.NewAssets().Catnip,
+					"-c", "./catnip",
+					"-d", Config.GetAppsDomain()).Wait(Config.DefaultTimeoutDuration())
+				Expect(createApp).To(Exit(0), "failed creating app")
+				app_helpers.SetBackend(appName)
+				Expect(cf.Cf("start", appName).Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+			})
+
+			AfterEach(func() {
+				app_helpers.AppReport(appName, Config.DefaultTimeoutDuration())
+				Expect(cf.Cf("delete", appName, "-f", "-r").Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+			})
+
+			FIt("can bind asynchronously a service to app and check app env and events", func() {
+				appGUID := getGuidFor("app", appName)
+				serviceGUID := getGuidFor("service", instanceName)
+
+				bindService := cf.Cf("curl", "/v2/service_bindings?accepts_incomplete=true", "-X", "POST", "-d", fmt.Sprintf(`'{ "app_guid": "%s", "service_instance_guid": "%s" }'`, appGUID, serviceGUID)).Wait(Config.DefaultTimeoutDuration())
+				Expect(bindService).To(Exit(0), "failed to asynchroniously bind service")
+
+				type lastOperation struct {
+					State string
+				}
+
+				type entity struct {
+					LastOperation lastOperation `json:"last_operation"`
+				}
+
+				type metadata struct {
+					URL string
+				}
+
+				type bindingResponse struct {
+					Entity   entity
+					Metadata metadata
+				}
+
+				var bindingResult bindingResponse
+				json.Unmarshal(bindService.Out.Contents(), &bindingResult)
+				// TODO error unmarshaling?
+
+				Eventually(func() string {
+					bindingDetails := cf.Cf("curl", bindingResult.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
+					Expect(bindingDetails).To(Exit(0), "failed getting service binding details")
+
+					var bindingRes bindingResponse
+					json.Unmarshal(bindingDetails.Out.Contents(), &bindingRes)
+					// TODO error unmarshaling?
+					return bindingRes.Entity.LastOperation.State
+				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("succeeded"))
+
+				// TODO how to check for binding_create event?
+				// checkForEvents(appName, []string{"audit.service_binding.create"})
+
+				restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
+				Expect(restageApp).To(Exit(0), "failed restaging app")
+
+				checkForEvents(appName, []string{"audit.app.restage"})
+
+				appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
+				Expect(appEnv).To(Exit(0), "failed get env for app")
+				Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
+			})
 		})
 
 		Context("when there is an existing service instance", func() {
@@ -492,16 +574,6 @@ func checkForEvents(name string, eventNames []string) {
 	}
 }
 
-func getServiceInstanceGuid(instanceName string) string {
-	getServiceInstanceGuid := cf.Cf("service", instanceName, "--guid")
-	Eventually(getServiceInstanceGuid, Config.DefaultTimeoutDuration()).Should(Exit(0))
-
-	serviceInstanceGuid := strings.TrimSpace(string(getServiceInstanceGuid.Out.Contents()))
-	Expect(serviceInstanceGuid).NotTo(Equal(""))
-
-	return serviceInstanceGuid
-}
-
 func getBindingParamsEndpoint(appGUID string, instanceGUID string) string {
 	jsonResults := Response{}
 	bindingCurl := cf.Cf("curl", fmt.Sprintf("/v2/apps/%s/service_bindings?q=service_instance_guid:%s", appGUID, instanceGUID)).Wait(Config.DefaultTimeoutDuration())
@@ -513,12 +585,12 @@ func getBindingParamsEndpoint(appGUID string, instanceGUID string) string {
 	return fmt.Sprintf("%s/parameters", jsonResults.Resources[0].Metadata.URL)
 }
 
-func getServiceKeyGUID(instanceName, keyName string) string {
-	getServiceKeyGUID := cf.Cf("service-key", instanceName, keyName, "--guid")
-	Eventually(getServiceKeyGUID, Config.DefaultTimeoutDuration()).Should(Exit(0))
+func getGuidFor(args ...string) string {
+	args = append(args, "--guid")
+	session := cf.Cf(args...).Wait(Config.DefaultTimeoutDuration())
 
-	serviceKeyGUID := strings.TrimSpace(string(getServiceKeyGUID.Out.Contents()))
-	Expect(serviceKeyGUID).NotTo(Equal(""))
-
-	return serviceKeyGUID
+	// temporary for: https://github.com/cloudfoundry/cli/issues/1271
+	out := string(session.Out.Contents())
+	outs := strings.Split(out, "\n")
+	return strings.TrimSpace(outs[len(outs)-2])
 }

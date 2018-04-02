@@ -104,6 +104,20 @@
                     }
                   ]
                 }
+              },
+              {
+                "name": "<fake-async-plan-3>",
+                "id": "<fake-async-plan-3-guid>",
+                "description": "Shared fake Server, 5tb persistent disk, 40 max concurrent connections. 100 async",
+                "max_storage_tb": 5,
+                "metadata": {
+                  "cost": 0,
+                  "bullets": [
+                    {
+                      "content": "40 concurrent connections"
+                    }
+                  ]
+                }
               }
             ]
           }
@@ -191,6 +205,12 @@
       }
     },
     "bind": {
+      "<fake-async-plan-3-guid>": {
+        "sleep_seconds": 0,
+        "async_onlty": true,
+        "status": 202,
+        "body": {}
+      },
       "default": {
         "sleep_seconds": 0,
         "status": 201,
