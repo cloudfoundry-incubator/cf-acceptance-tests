@@ -15,6 +15,7 @@
             ],
             "max_db_per_node": 5,
             "bindable": true,
+            "bindings_retrievable": true,
             "metadata": {
               "provider": {
                 "name": "The name"
@@ -130,6 +131,12 @@
         }
       },
       "<fake-async-plan-2-guid>": {
+        "sleep_seconds": 0,
+        "status": 202,
+        "body": {
+        }
+      },
+      "<fake-async-plan-3-guid>": {
         "sleep_seconds": 0,
         "status": 202,
         "body": {

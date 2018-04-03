@@ -119,6 +119,7 @@ func NewServiceBroker(name string, path string, TestSetup *workflowhelpers.Repro
 	b.AsyncPlans = []Plan{
 		{Name: random_name.CATSRandomName("SVC-PLAN"), ID: random_name.CATSRandomName("SVC-PLAN-ID")},
 		{Name: random_name.CATSRandomName("SVC-PLAN"), ID: random_name.CATSRandomName("SVC-PLAN-ID")},
+		{Name: random_name.CATSRandomName("SVC-PLAN"), ID: random_name.CATSRandomName("SVC-PLAN-ID")},
 	}
 	b.Service.DashboardClient.ID = random_name.CATSRandomName("DASHBOARD-ID")
 	b.Service.DashboardClient.Secret = random_name.CATSRandomName("DASHBOARD-SECRET")

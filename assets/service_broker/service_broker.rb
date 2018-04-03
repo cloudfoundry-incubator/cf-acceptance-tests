@@ -233,6 +233,15 @@ class ServiceBroker < Sinatra::Base
     end
   end
 
+  # fetch service binding
+  get '/v2/service_instances/:instance_id/service_bindings/:binding_id/last_operation/?' do |instance_id, binding_id|
+    status 200
+    log_response(status, {
+      state: 'succeeded',
+      description: '100%',
+    }.to_json)
+  end
+
   # update service instance
   patch '/v2/service_instances/:id/?' do |id|
     json_body = JSON.parse(request.body.read)
@@ -277,6 +286,12 @@ class ServiceBroker < Sinatra::Base
     else
       respond_with_behavior($datasource.behavior_for_type(:unbind, nil))
     end
+  end
+
+  # fetch a service binding
+  get '/v2/service_instances/:instance_id/service_bindings/:id' do |instance_id, binding_id|
+    status 200
+    log_response(status, JSON.pretty_generate($datasource.data['service_instances'][binding_id]['binding_data']))
   end
 
   get '/config/all/?' do
