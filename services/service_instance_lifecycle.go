@@ -24,18 +24,19 @@ type LastOperation struct {
 	State string `json:"state"`
 }
 
-type Service struct {
+type Entity struct {
 	Name          string        `json:"name"`
 	LastOperation LastOperation `json:"last_operation"`
 }
 
-type ServiceMetadata struct {
-	URL string `json:"url"`
+type Metadata struct {
+	URL  string
+	GUID string
 }
 
 type Resource struct {
-	Entity   Service         `json:"entity"`
-	Metadata ServiceMetadata `json:"metadata"`
+	Entity   Entity   `json:"entity"`
+	Metadata Metadata `json:"metadata"`
 }
 
 type Response struct {
@@ -111,7 +112,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				})
 
 				It("fetch the configuration parameters", func() {
-					instanceGUID := getGuidFor("service-instance", instanceName)
+					instanceGUID := getGuidFor("service", instanceName)
 					configParams := cf.Cf("curl", fmt.Sprintf("/v2/service_instances/%s/parameters", instanceGUID)).Wait(Config.DefaultTimeoutDuration())
 					Expect(configParams).To(Exit(0), "failed to curl fetch binding parameters")
 					Expect(configParams).To(Say("\"param1\": \"value\""))
@@ -249,7 +250,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 					"-d", Config.GetAppsDomain()).Wait(Config.CfPushTimeoutDuration())
 				Expect(createApp).To(Exit(0), "failed creating app")
 
-				checkForEvents(appName, []string{"audit.app.create"})
+				checkForAppEvents(appName, []string{"audit.app.create"})
 
 				instanceName = random_name.CATSRandomName("SVIN")
 				createService := cf.Cf("create-service", broker.Service.Name, broker.SyncPlans[0].Name, instanceName).Wait(Config.DefaultTimeoutDuration())
@@ -267,12 +268,12 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 					bindService := cf.Cf("bind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindService).To(Exit(0), "failed binding app to service")
 
-					checkForEvents(appName, []string{"audit.app.update"})
+					checkForAppEvents(appName, []string{"audit.app.update"})
 
 					restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
 					Expect(restageApp).To(Exit(0), "failed restaging app")
 
-					checkForEvents(appName, []string{"audit.app.restage"})
+					checkForAppEvents(appName, []string{"audit.app.restage"})
 
 					appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 					Expect(appEnv).To(Exit(0), "failed get env for app")
@@ -292,7 +293,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 
 					It("can retrieve parameters", func() {
 						appGUID := app_helpers.GetAppGuid(appName)
-						serviceInstanceGUID := getGuidFor("service-instance", instanceName)
+						serviceInstanceGUID := getGuidFor("service", instanceName)
 						paramsEndpoint := getBindingParamsEndpoint(appGUID, serviceInstanceGUID)
 
 						fetchBindingParameters := cf.Cf("curl", paramsEndpoint).Wait(Config.DefaultTimeoutDuration())
@@ -304,7 +305,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 						unbindService := cf.Cf("unbind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
 						Expect(unbindService).To(Exit(0), "failed unbinding app to service")
 
-						checkForEvents(appName, []string{"audit.app.update"})
+						checkForAppEvents(appName, []string{"audit.app.update"})
 
 						appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 						Expect(appEnv).To(Exit(0), "failed get env for app")
@@ -355,88 +356,6 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 			Expect(serviceInfo).To(Say("[S|s]tatus:\\s+create succeeded"))
 			Expect(serviceInfo).To(Say("[M|m]essage:\\s+100 percent done"))
 			Expect(serviceInfo.Out.Contents()).To(MatchRegexp(`"tags":\s*\[\n.*tag1.*\n.*tag2.*\n.*\]`))
-		})
-
-		Context("when there is an existing service instance", func() {
-			var appName string
-
-			BeforeEach(func() {
-				instanceName = random_name.CATSRandomName("SVC")
-				createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[2].Name, instanceName).Wait(Config.DefaultTimeoutDuration())
-				Expect(createService).To(Exit(0))
-				Expect(createService).To(Say("Create in progress."))
-
-				waitForAsyncOperationToComplete(broker, instanceName)
-
-				appName = random_name.CATSRandomName("APP")
-				createApp := cf.Cf("push",
-					appName,
-					"--no-start",
-					"-b", Config.GetBinaryBuildpackName(),
-					"-m", DEFAULT_MEMORY_LIMIT,
-					"-p", assets.NewAssets().Catnip,
-					"-c", "./catnip",
-					"-d", Config.GetAppsDomain()).Wait(Config.DefaultTimeoutDuration())
-				Expect(createApp).To(Exit(0), "failed creating app")
-				app_helpers.SetBackend(appName)
-				Expect(cf.Cf("start", appName).Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
-			})
-
-			AfterEach(func() {
-				app_helpers.AppReport(appName, Config.DefaultTimeoutDuration())
-				Expect(cf.Cf("delete", appName, "-f", "-r").Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
-			})
-
-			FIt("can bind asynchronously a service to app and check app env and events", func() {
-				appGUID := getGuidFor("app", appName)
-				serviceGUID := getGuidFor("service", instanceName)
-
-				bindService := cf.Cf("curl", "/v2/service_bindings?accepts_incomplete=true", "-X", "POST", "-d", fmt.Sprintf(`'{ "app_guid": "%s", "service_instance_guid": "%s" }'`, appGUID, serviceGUID)).Wait(Config.DefaultTimeoutDuration())
-				Expect(bindService).To(Exit(0), "failed to asynchroniously bind service")
-
-				type lastOperation struct {
-					State string
-				}
-
-				type entity struct {
-					LastOperation lastOperation `json:"last_operation"`
-				}
-
-				type metadata struct {
-					URL string
-				}
-
-				type bindingResponse struct {
-					Entity   entity
-					Metadata metadata
-				}
-
-				var bindingResult bindingResponse
-				json.Unmarshal(bindService.Out.Contents(), &bindingResult)
-				// TODO error unmarshaling?
-
-				Eventually(func() string {
-					bindingDetails := cf.Cf("curl", bindingResult.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
-					Expect(bindingDetails).To(Exit(0), "failed getting service binding details")
-
-					var bindingRes bindingResponse
-					json.Unmarshal(bindingDetails.Out.Contents(), &bindingRes)
-					// TODO error unmarshaling?
-					return bindingRes.Entity.LastOperation.State
-				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("succeeded"))
-
-				// TODO how to check for binding_create event?
-				// checkForEvents(appName, []string{"audit.service_binding.create"})
-
-				restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
-				Expect(restageApp).To(Exit(0), "failed restaging app")
-
-				checkForEvents(appName, []string{"audit.app.restage"})
-
-				appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
-				Expect(appEnv).To(Exit(0), "failed get env for app")
-				Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
-			})
 		})
 
 		Context("when there is an existing service instance", func() {
@@ -524,12 +443,12 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 					bindService := cf.Cf("bind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindService).To(Exit(0), "failed binding app to service")
 
-					checkForEvents(appName, []string{"audit.app.update"})
+					checkForAppEvents(appName, []string{"audit.app.update"})
 
 					restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
 					Expect(restageApp).To(Exit(0), "failed restaging app")
 
-					checkForEvents(appName, []string{"audit.app.restage"})
+					checkForAppEvents(appName, []string{"audit.app.restage"})
 
 					appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 					Expect(appEnv).To(Exit(0), "failed get env for app")
@@ -540,7 +459,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 					bindService := cf.Cf("bind-service", appName, instanceName, "-c", params).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindService).To(Exit(0), "failed binding app to service")
 
-					checkForEvents(appName, []string{"audit.app.update"})
+					checkForAppEvents(appName, []string{"audit.app.update"})
 				})
 
 				Context("when there is an existing binding", func() {
@@ -553,7 +472,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 						unbindService := cf.Cf("unbind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
 						Expect(unbindService).To(Exit(0), "failed unbinding app to service")
 
-						checkForEvents(appName, []string{"audit.app.update"})
+						checkForAppEvents(appName, []string{"audit.app.update"})
 
 						appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 						Expect(appEnv).To(Exit(0), "failed get env for app")
@@ -562,16 +481,84 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				})
 			})
 		})
+
+		Context("when there is a service instance which supports async binding", func() {
+			var appName string
+
+			BeforeEach(func() {
+				instanceName = random_name.CATSRandomName("SVC")
+				createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[2].Name, instanceName).Wait(Config.DefaultTimeoutDuration())
+				Expect(createService).To(Exit(0))
+				Expect(createService).To(Say("Create in progress."))
+
+				waitForAsyncOperationToComplete(broker, instanceName)
+
+				appName = random_name.CATSRandomName("APP")
+				createApp := cf.Cf("push",
+					appName,
+					"--no-start",
+					"-b", Config.GetBinaryBuildpackName(),
+					"-m", DEFAULT_MEMORY_LIMIT,
+					"-p", assets.NewAssets().Catnip,
+					"-c", "./catnip",
+					"-d", Config.GetAppsDomain()).Wait(Config.DefaultTimeoutDuration())
+				Expect(createApp).To(Exit(0), "failed creating app")
+				app_helpers.SetBackend(appName)
+				Expect(cf.Cf("start", appName).Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+			})
+
+			AfterEach(func() {
+				app_helpers.AppReport(appName, Config.DefaultTimeoutDuration())
+				Expect(cf.Cf("delete", appName, "-f", "-r").Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+			})
+
+			It("can bind it asynchronously to an app, check its env and events", func() {
+				appGUID := getGuidFor("app", appName)
+				serviceGUID := getGuidFor("service", instanceName)
+
+				bindService := cf.Cf("curl", "/v2/service_bindings?accepts_incomplete=true", "-X", "POST", "-d", fmt.Sprintf(`'{ "app_guid": "%s", "service_instance_guid": "%s" }'`, appGUID, serviceGUID)).Wait(Config.DefaultTimeoutDuration())
+				Expect(bindService).To(Exit(0), "failed to asynchroniously bind service")
+
+				var bindingResource Resource
+				json.Unmarshal(bindService.Out.Contents(), &bindingResource)
+
+				Eventually(func() string {
+					bindingDetails := cf.Cf("curl", bindingResource.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
+					Expect(bindingDetails).To(Exit(0), "failed getting service binding details")
+
+					var binding Resource
+					json.Unmarshal(bindingDetails.Out.Contents(), &binding)
+
+					return binding.Entity.LastOperation.State
+				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("succeeded"))
+
+				checkForBindingCreateEvent(bindingResource.Metadata.GUID)
+
+				restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
+				Expect(restageApp).To(Exit(0), "failed restaging app")
+
+				appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
+				Expect(appEnv).To(Exit(0), "failed get env for app")
+				Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
+			})
+		})
 	})
 })
 
-func checkForEvents(name string, eventNames []string) {
+func checkForAppEvents(name string, eventNames []string) {
 	events := cf.Cf("events", name).Wait(Config.DefaultTimeoutDuration())
 	Expect(events).To(Exit(0), fmt.Sprintf("failed getting events for %s", name))
 
 	for _, eventName := range eventNames {
 		Expect(events).To(Say(eventName), "failed to find event")
 	}
+}
+
+func checkForBindingCreateEvent(actee string) {
+	eventResource := cf.Cf("curl", fmt.Sprintf("/v2/events?q=type:audit.service_binding.create&q=actee:%s", actee)).Wait(Config.DefaultTimeoutDuration())
+
+	Expect(eventResource).To(Exit(0), "failed getting events for %s", actee)
+	Expect(eventResource).To(Say(actee), "failed to find event for binding %s", actee)
 }
 
 func getBindingParamsEndpoint(appGUID string, instanceGUID string) string {
@@ -589,8 +576,6 @@ func getGuidFor(args ...string) string {
 	args = append(args, "--guid")
 	session := cf.Cf(args...).Wait(Config.DefaultTimeoutDuration())
 
-	// temporary for: https://github.com/cloudfoundry/cli/issues/1271
 	out := string(session.Out.Contents())
-	outs := strings.Split(out, "\n")
-	return strings.TrimSpace(outs[len(outs)-2])
+	return strings.TrimSpace(out)
 }
