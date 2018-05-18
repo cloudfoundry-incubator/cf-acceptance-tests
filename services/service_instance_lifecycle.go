@@ -9,6 +9,7 @@ import (
 	. "github.com/cloudfoundry/cf-acceptance-tests/cats_suite_helpers"
 
 	"github.com/cloudfoundry-incubator/cf-test-helpers/cf"
+	"github.com/cloudfoundry-incubator/cf-test-helpers/helpers"
 	"github.com/cloudfoundry/cf-acceptance-tests/helpers/app_helpers"
 	"github.com/cloudfoundry/cf-acceptance-tests/helpers/assets"
 	"github.com/cloudfoundry/cf-acceptance-tests/helpers/random_name"
@@ -484,7 +485,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 			})
 		})
 
-		Describe("for a service binding", func() {
+		FDescribe("for a service binding", func() {
 			var appName string
 
 			BeforeEach(func() {
@@ -539,13 +540,24 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				Expect(restageApp).To(Exit(0), "failed restaging app")
 
 				//?? should we be calling dora
+				var envOutput string
+				Eventually(func() string {
+					envOutput = helpers.CurlApp(Config, appName, "/env.json")
+					return envOutput
+				}, Config.DefaultTimeoutDuration()).Should(Equal("credentials"))
+
+				fmt.Printf(envOutput)
+
+				//? calling cf env app
 				appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 				Expect(appEnv).To(Exit(0), "failed get env for app")
 				Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
 
 				//unbind
-				unbindService := cf.Cf("curl", "/v2/service_bindings/"+bindingResource.Metadata.GUID+"?accepts_incomplete=true", "-X", "DELETE")
-				Expect(unbindService).To(Exit(0), "failed to asynchroniously unbind service")
+				cf.Cf("curl", "/v2/service_bindings/"+bindingResource.Metadata.GUID+"?accepts_incomplete=true", "-X", "DELETE")
+
+				//TODO: Do we even need this step?
+				//Expect(unbindService).To(Exit(0), "failed to asynchroniously unbind service")
 
 				Eventually(func() string {
 					bindingDetails := cf.Cf("curl", bindingResource.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
@@ -561,6 +573,12 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				Expect(restageApp).To(Exit(0), "failed restaging app")
 
 				//?? should we be calling dora
+				Eventually(func() string {
+					envOutput = helpers.CurlApp(Config, appName, "/env.json")
+					return envOutput
+				}, Config.DefaultTimeoutDuration()).ShouldNot(Equal("credentials"))
+
+				//? calling cf env app
 				appEnv = cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 				Expect(appEnv).To(Exit(0), "failed get env for app")
 				Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
