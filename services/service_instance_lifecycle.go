@@ -340,149 +340,151 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 			broker.Destroy()
 		})
 
-		It("can create a service instance", func() {
-			tags := "['tag1', 'tag2']"
-			params := "{\"param1\": \"value\"}"
+		Describe("for a service instance", func() {
+			It("can create a service instance", func() {
+				tags := "['tag1', 'tag2']"
+				params := "{\"param1\": \"value\"}"
 
-			instanceName = random_name.CATSRandomName("SVIN")
-			createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[0].Name, instanceName, "-t", tags, "-c", params).Wait(Config.DefaultTimeoutDuration())
-			Expect(createService).To(Exit(0))
-			Expect(createService).To(Say("Create in progress."))
-
-			waitForAsyncOperationToComplete(broker, instanceName)
-
-			serviceInfo := cf.Cf("-v", "service", instanceName).Wait(Config.DefaultTimeoutDuration())
-			Expect(serviceInfo).To(Say("[P|p]lan:\\s+%s", broker.AsyncPlans[0].Name))
-			Expect(serviceInfo).To(Say("[S|s]tatus:\\s+create succeeded"))
-			Expect(serviceInfo).To(Say("[M|m]essage:\\s+100 percent done"))
-			Expect(serviceInfo.Out.Contents()).To(MatchRegexp(`"tags":\s*\[\n.*tag1.*\n.*tag2.*\n.*\]`))
-		})
-
-		Context("when there is an existing service instance", func() {
-			tags := "['tag1', 'tag2']"
-			params := "{\"param1\": \"value2\"}"
-
-			BeforeEach(func() {
-				instanceName = random_name.CATSRandomName("SVC")
-				createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[0].Name, instanceName).Wait(Config.DefaultTimeoutDuration())
+				instanceName = random_name.CATSRandomName("SVIN")
+				createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[0].Name, instanceName, "-t", tags, "-c", params).Wait(Config.DefaultTimeoutDuration())
 				Expect(createService).To(Exit(0))
 				Expect(createService).To(Say("Create in progress."))
 
 				waitForAsyncOperationToComplete(broker, instanceName)
-			})
-
-			It("can update a service plan", func() {
-				updateService := cf.Cf("update-service", instanceName, "-p", broker.AsyncPlans[1].Name).Wait(Config.DefaultTimeoutDuration())
-				Expect(updateService).To(Exit(0))
-				Expect(updateService).To(Say("Update in progress."))
-
-				serviceInfo := cf.Cf("service", instanceName).Wait(Config.DefaultTimeoutDuration())
-				Expect(serviceInfo).To(Exit(0), "failed getting service instance details")
-				Expect(serviceInfo).To(Say("[P|p]lan:\\s+%s", broker.AsyncPlans[0].Name))
-
-				waitForAsyncOperationToComplete(broker, instanceName)
-
-				serviceInfo = cf.Cf("service", instanceName).Wait(Config.DefaultTimeoutDuration())
-				Expect(serviceInfo).To(Exit(0), "failed getting service instance details")
-				Expect(serviceInfo).To(Say("[P|p]lan:\\s+%s", broker.AsyncPlans[1].Name))
-			})
-
-			It("can update the arbitrary params", func() {
-				updateService := cf.Cf("update-service", instanceName, "-c", params).Wait(Config.DefaultTimeoutDuration())
-				Expect(updateService).To(Exit(0))
-				Expect(updateService).To(Say("Update in progress."))
-
-				waitForAsyncOperationToComplete(broker, instanceName)
-			})
-
-			It("can update all of the possible parameters at once", func() {
-				updateService := cf.Cf(
-					"update-service", instanceName,
-					"-t", tags,
-					"-c", params,
-					"-p", broker.AsyncPlans[1].Name).Wait(Config.DefaultTimeoutDuration())
-				Expect(updateService).To(Exit(0))
-				Expect(updateService).To(Say("Update in progress."))
-
-				waitForAsyncOperationToComplete(broker, instanceName)
 
 				serviceInfo := cf.Cf("-v", "service", instanceName).Wait(Config.DefaultTimeoutDuration())
-				Expect(serviceInfo).To(Exit(0), "failed getting service instance details")
-				Expect(serviceInfo).To(Say("[P|p]lan:\\s+%s", broker.AsyncPlans[1].Name))
+				Expect(serviceInfo).To(Say("[P|p]lan:\\s+%s", broker.AsyncPlans[0].Name))
+				Expect(serviceInfo).To(Say("[S|s]tatus:\\s+create succeeded"))
+				Expect(serviceInfo).To(Say("[M|m]essage:\\s+100 percent done"))
 				Expect(serviceInfo.Out.Contents()).To(MatchRegexp(`"tags":\s*\[\n.*tag1.*\n.*tag2.*\n.*\]`))
 			})
 
-			It("can delete a service instance", func() {
-				deleteService := cf.Cf("delete-service", instanceName, "-f").Wait(Config.DefaultTimeoutDuration())
-				Expect(deleteService).To(Exit(0), "failed making delete request")
-				Expect(deleteService).To(Say("Delete in progress."))
+			Context("when there is an existing service instance", func() {
+				tags := "['tag1', 'tag2']"
+				params := "{\"param1\": \"value2\"}"
 
-				waitForAsyncDeletionToComplete(broker, instanceName)
-			})
-
-			Context("when there is an app", func() {
-				var appName string
 				BeforeEach(func() {
-					appName = random_name.CATSRandomName("APP")
-					createApp := cf.Cf("push",
-						appName,
-						"-b", Config.GetBinaryBuildpackName(),
-						"-m", DEFAULT_MEMORY_LIMIT,
-						"-p", assets.NewAssets().Catnip,
-						"-c", "./catnip",
-						"-d", Config.GetAppsDomain()).Wait(Config.CfPushTimeoutDuration())
-					Expect(createApp).To(Exit(0), "failed creating app")
+					instanceName = random_name.CATSRandomName("SVC")
+					createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[0].Name, instanceName).Wait(Config.DefaultTimeoutDuration())
+					Expect(createService).To(Exit(0))
+					Expect(createService).To(Say("Create in progress."))
+
+					waitForAsyncOperationToComplete(broker, instanceName)
 				})
 
-				AfterEach(func() {
-					app_helpers.AppReport(appName, Config.DefaultTimeoutDuration())
-					Expect(cf.Cf("delete", appName, "-f", "-r").Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+				It("can update a service plan", func() {
+					updateService := cf.Cf("update-service", instanceName, "-p", broker.AsyncPlans[1].Name).Wait(Config.DefaultTimeoutDuration())
+					Expect(updateService).To(Exit(0))
+					Expect(updateService).To(Say("Update in progress."))
+
+					serviceInfo := cf.Cf("service", instanceName).Wait(Config.DefaultTimeoutDuration())
+					Expect(serviceInfo).To(Exit(0), "failed getting service instance details")
+					Expect(serviceInfo).To(Say("[P|p]lan:\\s+%s", broker.AsyncPlans[0].Name))
+
+					waitForAsyncOperationToComplete(broker, instanceName)
+
+					serviceInfo = cf.Cf("service", instanceName).Wait(Config.DefaultTimeoutDuration())
+					Expect(serviceInfo).To(Exit(0), "failed getting service instance details")
+					Expect(serviceInfo).To(Say("[P|p]lan:\\s+%s", broker.AsyncPlans[1].Name))
 				})
 
-				It("can bind a service instance", func() {
-					bindService := cf.Cf("bind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
-					Expect(bindService).To(Exit(0), "failed binding app to service")
+				It("can update the arbitrary params", func() {
+					updateService := cf.Cf("update-service", instanceName, "-c", params).Wait(Config.DefaultTimeoutDuration())
+					Expect(updateService).To(Exit(0))
+					Expect(updateService).To(Say("Update in progress."))
 
-					checkForAppEvents(appName, []string{"audit.app.update"})
-
-					restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
-					Expect(restageApp).To(Exit(0), "failed restaging app")
-
-					checkForAppEvents(appName, []string{"audit.app.restage"})
-
-					appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
-					Expect(appEnv).To(Exit(0), "failed get env for app")
-					Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
+					waitForAsyncOperationToComplete(broker, instanceName)
 				})
 
-				It("can bind service to app and send arbitrary params", func() {
-					bindService := cf.Cf("bind-service", appName, instanceName, "-c", params).Wait(Config.DefaultTimeoutDuration())
-					Expect(bindService).To(Exit(0), "failed binding app to service")
+				It("can update all of the possible parameters at once", func() {
+					updateService := cf.Cf(
+						"update-service", instanceName,
+						"-t", tags,
+						"-c", params,
+						"-p", broker.AsyncPlans[1].Name).Wait(Config.DefaultTimeoutDuration())
+					Expect(updateService).To(Exit(0))
+					Expect(updateService).To(Say("Update in progress."))
 
-					checkForAppEvents(appName, []string{"audit.app.update"})
+					waitForAsyncOperationToComplete(broker, instanceName)
+
+					serviceInfo := cf.Cf("-v", "service", instanceName).Wait(Config.DefaultTimeoutDuration())
+					Expect(serviceInfo).To(Exit(0), "failed getting service instance details")
+					Expect(serviceInfo).To(Say("[P|p]lan:\\s+%s", broker.AsyncPlans[1].Name))
+					Expect(serviceInfo.Out.Contents()).To(MatchRegexp(`"tags":\s*\[\n.*tag1.*\n.*tag2.*\n.*\]`))
 				})
 
-				Context("when there is an existing binding", func() {
+				It("can delete a service instance", func() {
+					deleteService := cf.Cf("delete-service", instanceName, "-f").Wait(Config.DefaultTimeoutDuration())
+					Expect(deleteService).To(Exit(0), "failed making delete request")
+					Expect(deleteService).To(Say("Delete in progress."))
+
+					waitForAsyncDeletionToComplete(broker, instanceName)
+				})
+
+				Context("when there is an app", func() {
+					var appName string
 					BeforeEach(func() {
-						bindService := cf.Cf("bind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
-						Expect(bindService).To(Exit(0), "failed binding app to service")
+						appName = random_name.CATSRandomName("APP")
+						createApp := cf.Cf("push",
+							appName,
+							"-b", Config.GetBinaryBuildpackName(),
+							"-m", DEFAULT_MEMORY_LIMIT,
+							"-p", assets.NewAssets().Catnip,
+							"-c", "./catnip",
+							"-d", Config.GetAppsDomain()).Wait(Config.CfPushTimeoutDuration())
+						Expect(createApp).To(Exit(0), "failed creating app")
 					})
 
-					It("can unbind a service instance", func() {
-						unbindService := cf.Cf("unbind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
-						Expect(unbindService).To(Exit(0), "failed unbinding app to service")
+					AfterEach(func() {
+						app_helpers.AppReport(appName, Config.DefaultTimeoutDuration())
+						Expect(cf.Cf("delete", appName, "-f", "-r").Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+					})
+
+					It("can bind a service instance", func() {
+						bindService := cf.Cf("bind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
+						Expect(bindService).To(Exit(0), "failed binding app to service")
 
 						checkForAppEvents(appName, []string{"audit.app.update"})
 
+						restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
+						Expect(restageApp).To(Exit(0), "failed restaging app")
+
+						checkForAppEvents(appName, []string{"audit.app.restage"})
+
 						appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 						Expect(appEnv).To(Exit(0), "failed get env for app")
-						Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
+						Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
+					})
+
+					It("can bind service to app and send arbitrary params", func() {
+						bindService := cf.Cf("bind-service", appName, instanceName, "-c", params).Wait(Config.DefaultTimeoutDuration())
+						Expect(bindService).To(Exit(0), "failed binding app to service")
+
+						checkForAppEvents(appName, []string{"audit.app.update"})
+					})
+
+					Context("when there is an existing binding", func() {
+						BeforeEach(func() {
+							bindService := cf.Cf("bind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
+							Expect(bindService).To(Exit(0), "failed binding app to service")
+						})
+
+						It("can unbind a service instance", func() {
+							unbindService := cf.Cf("unbind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
+							Expect(unbindService).To(Exit(0), "failed unbinding app to service")
+
+							checkForAppEvents(appName, []string{"audit.app.update"})
+
+							appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
+							Expect(appEnv).To(Exit(0), "failed get env for app")
+							Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
+						})
 					})
 				})
 			})
 		})
 
-		Context("when there is a service instance which supports async binding", func() {
+		Describe("for a service binding", func() {
 			var appName string
 
 			BeforeEach(func() {
@@ -503,7 +505,6 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 					"-c", "./catnip",
 					"-d", Config.GetAppsDomain()).Wait(Config.DefaultTimeoutDuration())
 				Expect(createApp).To(Exit(0), "failed creating app")
-				app_helpers.SetBackend(appName)
 				Expect(cf.Cf("start", appName).Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
 			})
 
@@ -537,9 +538,32 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
 				Expect(restageApp).To(Exit(0), "failed restaging app")
 
+				//?? should we be calling dora
 				appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 				Expect(appEnv).To(Exit(0), "failed get env for app")
 				Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
+
+				//unbind
+				unbindService := cf.Cf("curl", "/v2/service_bindings/"+bindingResource.Metadata.GUID+"?accepts_incomplete=true", "-X", "DELETE")
+				Expect(unbindService).To(Exit(0), "failed to asynchroniously unbind service")
+
+				Eventually(func() string {
+					bindingDetails := cf.Cf("curl", bindingResource.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
+					Expect(bindingDetails).To(Exit(0), "failed getting service binding details")
+
+					var binding Resource
+					json.Unmarshal(bindingDetails.Out.Contents(), &binding)
+
+					return binding.Entity.LastOperation.State
+				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("succeeded"))
+
+				restageApp = cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
+				Expect(restageApp).To(Exit(0), "failed restaging app")
+
+				//?? should we be calling dora
+				appEnv = cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
+				Expect(appEnv).To(Exit(0), "failed get env for app")
+				Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
 			})
 		})
 	})
