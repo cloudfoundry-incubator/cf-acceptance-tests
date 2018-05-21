@@ -567,6 +567,8 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 					return errorResponse.ErrorCode
 				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("CF-ServiceBindingNotFound"))
 
+				checkForBindingDeleteEvent(bindingResource.Metadata.GUID)
+
 				appEnv = cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 				Expect(appEnv).To(Exit(0), "failed get env for app")
 				Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
@@ -594,6 +596,13 @@ func checkForAppEvents(name string, eventNames []string) {
 
 func checkForBindingCreateEvent(actee string) {
 	eventResource := cf.Cf("curl", fmt.Sprintf("/v2/events?q=type:audit.service_binding.create&q=actee:%s", actee)).Wait(Config.DefaultTimeoutDuration())
+
+	Expect(eventResource).To(Exit(0), "failed getting events for %s", actee)
+	Expect(eventResource).To(Say(actee), "failed to find event for binding %s", actee)
+}
+
+func checkForBindingDeleteEvent(actee string) {
+	eventResource := cf.Cf("curl", fmt.Sprintf("/v2/events?q=type:audit.service_binding.delete&q=actee:%s", actee)).Wait(Config.DefaultTimeoutDuration())
 
 	Expect(eventResource).To(Exit(0), "failed getting events for %s", actee)
 	Expect(eventResource).To(Say(actee), "failed to find event for binding %s", actee)
