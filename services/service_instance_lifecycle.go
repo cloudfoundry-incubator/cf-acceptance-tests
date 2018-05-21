@@ -44,6 +44,10 @@ type Response struct {
 	Resources []Resource `json:"resources"`
 }
 
+type ErrorResponse struct {
+	ErrorCode string `json:"error_code"`
+}
+
 var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 	var broker ServiceBroker
 	var ASYNC_OPERATION_POLL_INTERVAL = 5 * time.Second
@@ -536,52 +540,44 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 
 				checkForBindingCreateEvent(bindingResource.Metadata.GUID)
 
-				restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
-				Expect(restageApp).To(Exit(0), "failed restaging app")
-
-				//?? should we be calling dora
-				var envOutput string
-				Eventually(func() string {
-					envOutput = helpers.CurlApp(Config, appName, "/env.json")
-					return envOutput
-				}, Config.DefaultTimeoutDuration()).Should(Equal("credentials"))
-
-				fmt.Printf(envOutput)
-
-				//? calling cf env app
 				appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 				Expect(appEnv).To(Exit(0), "failed get env for app")
 				Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
 
-				//unbind
-				cf.Cf("curl", "/v2/service_bindings/"+bindingResource.Metadata.GUID+"?accepts_incomplete=true", "-X", "DELETE")
+				restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
+				Expect(restageApp).To(Exit(0), "failed restaging app")
 
-				//TODO: Do we even need this step?
-				//Expect(unbindService).To(Exit(0), "failed to asynchroniously unbind service")
+				var envOutput string
+				Eventually(func() string {
+					envOutput = helpers.CurlApp(Config, appName, "/env.json")
+					return envOutput
+				}, Config.DefaultTimeoutDuration()).Should(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
+
+				//unbind
+				unbindService := cf.Cf("curl", fmt.Sprintf("/v2/service_bindings/%s?accepts_incomplete=true", bindingResource.Metadata.GUID), "-X", "DELETE").Wait(Config.DefaultTimeoutDuration())
+				Expect(unbindService).To(Exit(0), "failed to asynchroniously unbind service")
 
 				Eventually(func() string {
 					bindingDetails := cf.Cf("curl", bindingResource.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindingDetails).To(Exit(0), "failed getting service binding details")
 
-					var binding Resource
-					json.Unmarshal(bindingDetails.Out.Contents(), &binding)
+					var errorResponse ErrorResponse
+					json.Unmarshal(bindingDetails.Out.Contents(), &errorResponse)
 
-					return binding.Entity.LastOperation.State
-				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("succeeded"))
+					return errorResponse.ErrorCode
+				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("CF-ServiceBindingNotFound"))
+
+				appEnv = cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
+				Expect(appEnv).To(Exit(0), "failed get env for app")
+				Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
 
 				restageApp = cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
 				Expect(restageApp).To(Exit(0), "failed restaging app")
 
-				//?? should we be calling dora
 				Eventually(func() string {
 					envOutput = helpers.CurlApp(Config, appName, "/env.json")
 					return envOutput
-				}, Config.DefaultTimeoutDuration()).ShouldNot(Equal("credentials"))
-
-				//? calling cf env app
-				appEnv = cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
-				Expect(appEnv).To(Exit(0), "failed get env for app")
-				Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
+				}, Config.DefaultTimeoutDuration()).ShouldNot(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
 			})
 		})
 	})

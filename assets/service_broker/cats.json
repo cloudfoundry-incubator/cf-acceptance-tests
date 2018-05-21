@@ -213,7 +213,7 @@
     "bind": {
       "<fake-async-plan-3-guid>": {
         "sleep_seconds": 0,
-        "async_onlty": true,
+        "async_only": true,
         "status": 202,
         "body": {}
       },
@@ -237,6 +237,22 @@
         "sleep_seconds": 0,
         "status": 200,
         "body": {}
+      }
+    },
+    "fetch_service_binding": {
+      "default": {
+        "sleep_seconds": 0,
+        "status": 200,
+        "body": {
+          "credentials": {
+            "uri": "fake-service://fake-user:fake-password@fake-host:3306/fake-dbname",
+            "username": "fake-user",
+            "password": "fake-password",
+            "host": "fake-host",
+            "port": 3306,
+            "database": "fake-dbname"
+          }
+        }
       }
     }
   },

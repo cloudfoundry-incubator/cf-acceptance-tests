@@ -294,8 +294,10 @@ class ServiceBroker < Sinatra::Base
   end
 
   get '/v2/service_instances/:instance_id/service_bindings/:id' do |instance_id, binding_id|
-    status 200
-    log_response(status, JSON.pretty_generate($datasource.data['service_instances'][binding_id]['binding_data']))
+    binding_data = $datasource.data['service_instances'][binding_id]['binding_data']
+    response_body = $datasource.behavior_for_type(:fetch_service_binding, binding_data['plan_id'])
+    response_body['body'].merge!(binding_data)
+    respond_with_behavior(response_body)
   end
 
   get '/config/all/?' do
