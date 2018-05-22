@@ -282,9 +282,9 @@ class ServiceBroker < Sinatra::Base
 
     service_binding = $datasource.delete_service_binding(binding_id)
     if service_binding
-      respond_with_behavior($datasource.behavior_for_type(:unbind, service_binding['binding_data']['plan_id']))
+      respond_with_behavior($datasource.behavior_for_type(:unbind, service_binding['binding_data']['plan_id']), params[:accepts_incomplete])
     else
-      respond_with_behavior($datasource.behavior_for_type(:unbind, nil))
+      respond_with_behavior($datasource.behavior_for_type(:unbind, nil), params[:accepts_incomplete])
     end
   end
 

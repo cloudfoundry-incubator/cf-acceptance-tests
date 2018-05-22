@@ -68,7 +68,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 		}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Say("succeeded"))
 	}
 
-	Context("Synchronous operations", func() {
+	Describe("Synchronous operations", func() {
 		BeforeEach(func() {
 			broker = NewServiceBroker(
 				random_name.CATSRandomName("BRKR"),
@@ -87,7 +87,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 			broker.Destroy()
 		})
 
-		Context("just service instances", func() {
+		Describe("just service instances", func() {
 			var instanceName string
 			AfterEach(func() {
 				if instanceName != "" {
@@ -225,7 +225,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 
 							fetchServiceKeyParameters := cf.Cf("curl", paramsEndpoint).Wait(Config.DefaultTimeoutDuration())
 							Expect(fetchServiceKeyParameters).To(Say(`"param1": "value"`))
-							Expect(fetchServiceKeyParameters).To(Exit(0), "failed to curl fetch binding parameters")
+							Expect(fetchServiceKeyParameters).To(Exit(0), "failed to fetch service key parameters")
 						})
 
 						It("can delete the key", func() {
@@ -242,7 +242,6 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 
 		Context("when there is an app", func() {
 			var instanceName, appName string
-			params := "{\"param1\": \"value\"}"
 
 			BeforeEach(func() {
 				appName = random_name.CATSRandomName("APP")
@@ -268,31 +267,31 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				Expect(cf.Cf("delete-service", instanceName, "-f").Wait(Config.DefaultTimeoutDuration())).To(Exit(0))
 			})
 
-			Describe("bindings", func() {
+			FDescribe("bindings", func() {
 				It("can bind service to app and check app env and events", func() {
 					bindService := cf.Cf("bind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindService).To(Exit(0), "failed binding app to service")
 
 					checkForAppEvents(appName, []string{"audit.app.update"})
 
-					restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
-					Expect(restageApp).To(Exit(0), "failed restaging app")
-
-					checkForAppEvents(appName, []string{"audit.app.restage"})
-
 					appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 					Expect(appEnv).To(Exit(0), "failed get env for app")
 					Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
+
+					restartApp := cf.Cf("restart", appName).Wait(Config.CfPushTimeoutDuration())
+					Expect(restartApp).To(Exit(0), "failed restarting app")
+
+					Expect(helpers.CurlApp(Config, appName, "/env/VCAP_SERVICES")).Should(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
 				})
 
 				It("can bind service to app and send arbitrary params", func() {
-					bindService := cf.Cf("bind-service", appName, instanceName, "-c", params).Wait(Config.DefaultTimeoutDuration())
+					bindService := cf.Cf("bind-service", appName, instanceName, "-c", `{"param1": "value"}`).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindService).To(Exit(0), "failed binding app to service")
 				})
 
 				Context("when there is an existing binding", func() {
 					BeforeEach(func() {
-						bindService := cf.Cf("bind-service", appName, instanceName, "-c", "{\"max_clients\": 5}").Wait(Config.DefaultTimeoutDuration())
+						bindService := cf.Cf("bind-service", appName, instanceName, "-c", `{"max_clients": 5}`).Wait(Config.DefaultTimeoutDuration())
 						Expect(bindService).To(Exit(0), "failed binding app to service")
 					})
 
@@ -302,8 +301,8 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 						paramsEndpoint := getBindingParamsEndpoint(appGUID, serviceInstanceGUID)
 
 						fetchBindingParameters := cf.Cf("curl", paramsEndpoint).Wait(Config.DefaultTimeoutDuration())
-						Expect(fetchBindingParameters).To(Say("\"max_clients\": 5"))
-						Expect(fetchBindingParameters).To(Exit(0), "failed to curl fetch binding parameters")
+						Expect(fetchBindingParameters).To(Say(`"max_clients": 5`))
+						Expect(fetchBindingParameters).To(Exit(0), "failed to fetch binding parameters")
 					})
 
 					It("can unbind service to app and check app env and events", func() {
@@ -315,13 +314,18 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 						appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 						Expect(appEnv).To(Exit(0), "failed get env for app")
 						Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
+
+						restartApp := cf.Cf("restart", appName).Wait(Config.CfPushTimeoutDuration())
+						Expect(restartApp).To(Exit(0), "failed restarting app")
+
+						Expect(helpers.CurlApp(Config, appName, "/env/VCAP_SERVICES")).ShouldNot(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
 					})
 				})
 			})
 		})
 	})
 
-	Context("Asynchronous operations", func() {
+	Describe("Asynchronous operations", func() {
 		var instanceName string
 
 		BeforeEach(func() {
@@ -489,8 +493,12 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 			})
 		})
 
-		FDescribe("for a service binding", func() {
-			var appName string
+		Describe("for a service binding", func() {
+			var (
+				appName     string
+				appGUID     string
+				serviceGUID string
+			)
 
 			BeforeEach(func() {
 				instanceName = random_name.CATSRandomName("SVC")
@@ -511,6 +519,9 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 					"-d", Config.GetAppsDomain()).Wait(Config.DefaultTimeoutDuration())
 				Expect(createApp).To(Exit(0), "failed creating app")
 				Expect(cf.Cf("start", appName).Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+
+				appGUID = getGuidFor("app", appName)
+				serviceGUID = getGuidFor("service", instanceName)
 			})
 
 			AfterEach(func() {
@@ -518,68 +529,68 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				Expect(cf.Cf("delete", appName, "-f", "-r").Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
 			})
 
-			It("can bind it asynchronously to an app, check its env and events", func() {
-				appGUID := getGuidFor("app", appName)
-				serviceGUID := getGuidFor("service", instanceName)
+			It("can bind and unbind asynchronously", func() {
+				By("creating a binding asynchronously")
+				bindService := cf.Cf(
+					"curl", "/v2/service_bindings?accepts_incomplete=true", "-X", "POST",
+					"-d", fmt.Sprintf(`'{ "app_guid": "%s", "service_instance_guid": "%s" }'`, appGUID, serviceGUID)).
+					Wait(Config.DefaultTimeoutDuration())
 
-				bindService := cf.Cf("curl", "/v2/service_bindings?accepts_incomplete=true", "-X", "POST", "-d", fmt.Sprintf(`'{ "app_guid": "%s", "service_instance_guid": "%s" }'`, appGUID, serviceGUID)).Wait(Config.DefaultTimeoutDuration())
-				Expect(bindService).To(Exit(0), "failed to asynchroniously bind service")
+				Expect(bindService).To(Exit(0), "failed to asynchronously bind service")
 
 				var bindingResource Resource
-				json.Unmarshal(bindService.Out.Contents(), &bindingResource)
+				err := json.Unmarshal(bindService.Out.Contents(), &bindingResource)
+				Expect(err).NotTo(HaveOccurred())
+				bindingMetadata := bindingResource.Metadata
 
+				By("waiting for binding to be created")
 				Eventually(func() string {
-					bindingDetails := cf.Cf("curl", bindingResource.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
+					bindingDetails := cf.Cf("curl", bindingMetadata.URL).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindingDetails).To(Exit(0), "failed getting service binding details")
 
 					var binding Resource
-					json.Unmarshal(bindingDetails.Out.Contents(), &binding)
+					err := json.Unmarshal(bindingDetails.Out.Contents(), &binding)
+					Expect(err).NotTo(HaveOccurred())
 
 					return binding.Entity.LastOperation.State
 				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("succeeded"))
-
-				checkForBindingCreateEvent(bindingResource.Metadata.GUID)
 
 				appEnv := cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 				Expect(appEnv).To(Exit(0), "failed get env for app")
 				Expect(appEnv).To(Say(fmt.Sprintf("credentials")))
 
-				restageApp := cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
-				Expect(restageApp).To(Exit(0), "failed restaging app")
+				restartApp := cf.Cf("restart", appName).Wait(Config.CfPushTimeoutDuration())
+				Expect(restartApp).To(Exit(0), "failed restarting app")
 
-				var envOutput string
+				Expect(helpers.CurlApp(Config, appName, "/env/VCAP_SERVICES")).Should(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
+
+				By("deleting the binding asynchronously")
+				unbindService := cf.Cf(
+					"curl", "-X", "DELETE",
+					fmt.Sprintf("/v2/service_bindings/%s?accepts_incomplete=true", bindingMetadata.GUID)).
+					Wait(Config.DefaultTimeoutDuration())
+				Expect(unbindService).To(Exit(0), "failed to asynchronously unbind service")
+
+				By("waiting for binding to be deleted")
 				Eventually(func() string {
-					envOutput = helpers.CurlApp(Config, appName, "/env.json")
-					return envOutput
-				}, Config.DefaultTimeoutDuration()).Should(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
-
-				//unbind
-				unbindService := cf.Cf("curl", fmt.Sprintf("/v2/service_bindings/%s?accepts_incomplete=true", bindingResource.Metadata.GUID), "-X", "DELETE").Wait(Config.DefaultTimeoutDuration())
-				Expect(unbindService).To(Exit(0), "failed to asynchroniously unbind service")
-
-				Eventually(func() string {
-					bindingDetails := cf.Cf("curl", bindingResource.Metadata.URL).Wait(Config.DefaultTimeoutDuration())
+					bindingDetails := cf.Cf("curl", bindingMetadata.URL).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindingDetails).To(Exit(0), "failed getting service binding details")
 
 					var errorResponse ErrorResponse
-					json.Unmarshal(bindingDetails.Out.Contents(), &errorResponse)
+					err := json.Unmarshal(bindingDetails.Out.Contents(), &errorResponse)
+					Expect(err).NotTo(HaveOccurred())
 
 					return errorResponse.ErrorCode
 				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("CF-ServiceBindingNotFound"))
-
-				checkForBindingDeleteEvent(bindingResource.Metadata.GUID)
 
 				appEnv = cf.Cf("env", appName).Wait(Config.DefaultTimeoutDuration())
 				Expect(appEnv).To(Exit(0), "failed get env for app")
 				Expect(appEnv).ToNot(Say(fmt.Sprintf("credentials")))
 
-				restageApp = cf.Cf("restage", appName).Wait(Config.CfPushTimeoutDuration())
-				Expect(restageApp).To(Exit(0), "failed restaging app")
+				restartApp = cf.Cf("restart", appName).Wait(Config.CfPushTimeoutDuration())
+				Expect(restartApp).To(Exit(0), "failed restarting app")
 
-				Eventually(func() string {
-					envOutput = helpers.CurlApp(Config, appName, "/env.json")
-					return envOutput
-				}, Config.DefaultTimeoutDuration()).ShouldNot(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
+				Expect(helpers.CurlApp(Config, appName, "/env/VCAP_SERVICES")).ShouldNot(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
 			})
 		})
 	})
@@ -592,20 +603,6 @@ func checkForAppEvents(name string, eventNames []string) {
 	for _, eventName := range eventNames {
 		Expect(events).To(Say(eventName), "failed to find event")
 	}
-}
-
-func checkForBindingCreateEvent(actee string) {
-	eventResource := cf.Cf("curl", fmt.Sprintf("/v2/events?q=type:audit.service_binding.create&q=actee:%s", actee)).Wait(Config.DefaultTimeoutDuration())
-
-	Expect(eventResource).To(Exit(0), "failed getting events for %s", actee)
-	Expect(eventResource).To(Say(actee), "failed to find event for binding %s", actee)
-}
-
-func checkForBindingDeleteEvent(actee string) {
-	eventResource := cf.Cf("curl", fmt.Sprintf("/v2/events?q=type:audit.service_binding.delete&q=actee:%s", actee)).Wait(Config.DefaultTimeoutDuration())
-
-	Expect(eventResource).To(Exit(0), "failed getting events for %s", actee)
-	Expect(eventResource).To(Say(actee), "failed to find event for binding %s", actee)
 }
 
 func getBindingParamsEndpoint(appGUID string, instanceGUID string) string {
