@@ -267,7 +267,7 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				Expect(cf.Cf("delete-service", instanceName, "-f").Wait(Config.DefaultTimeoutDuration())).To(Exit(0))
 			})
 
-			FDescribe("bindings", func() {
+			Describe("bindings", func() {
 				It("can bind service to app and check app env and events", func() {
 					bindService := cf.Cf("bind-service", appName, instanceName).Wait(Config.DefaultTimeoutDuration())
 					Expect(bindService).To(Exit(0), "failed binding app to service")
