@@ -595,6 +595,105 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 				Expect(helpers.CurlApp(Config, appName, "/env/VCAP_SERVICES")).ShouldNot(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
 			})
 		})
+
+		FDescribe("for a service key", func() {
+			var (
+				appName     string
+				serviceGUID string
+			)
+
+			BeforeEach(func() {
+				instanceName = random_name.CATSRandomName("SVC")
+				createService := cf.Cf("create-service", broker.Service.Name, broker.AsyncPlans[2].Name, instanceName).Wait(Config.DefaultTimeoutDuration())
+				Expect(createService).To(Exit(0))
+				Expect(createService).To(Say("Create in progress."))
+
+				waitForAsyncOperationToComplete(broker, instanceName)
+
+				appName = random_name.CATSRandomName("APP")
+				createApp := cf.Cf("push",
+					appName,
+					"--no-start",
+					"-b", Config.GetBinaryBuildpackName(),
+					"-m", DEFAULT_MEMORY_LIMIT,
+					"-p", assets.NewAssets().Catnip,
+					"-c", "./catnip",
+					"-d", Config.GetAppsDomain()).Wait(Config.DefaultTimeoutDuration())
+				Expect(createApp).To(Exit(0), "failed creating app")
+				Expect(cf.Cf("start", appName).Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+
+				serviceGUID = getGuidFor("service", instanceName)
+			})
+
+			AfterEach(func() {
+				app_helpers.AppReport(appName, Config.DefaultTimeoutDuration())
+				Expect(cf.Cf("delete", appName, "-f", "-r").Wait(Config.CfPushTimeoutDuration())).To(Exit(0))
+			})
+
+			It("can create and delete asynchronously", func() {
+				By("creating a service key asynchronously")
+				bindServiceKey := cf.Cf(
+					"curl", "/v2/service_keys?accepts_incomplete=true", "-X", "POST",
+					"-d", fmt.Sprintf(`'{ "name": "mykey", "service_instance_guid": "%s" }'`, serviceGUID)).
+					Wait(Config.DefaultTimeoutDuration())
+
+				Expect(bindServiceKey).To(Exit(0), "failed to asynchronously create service key")
+
+				var serviceKeyResource Resource
+				err := json.Unmarshal(bindServiceKey.Out.Contents(), &serviceKeyResource)
+				Expect(err).NotTo(HaveOccurred())
+				serviceKeyMetadata := serviceKeyResource.Metadata
+
+				By("waiting for service key to be created")
+				Eventually(func() string {
+					serviceKeyDetails := cf.Cf("curl", serviceKeyMetadata.URL).Wait(Config.DefaultTimeoutDuration())
+					Expect(serviceKeyDetails).To(Exit(0), "failed getting service key details")
+
+					var serviceKey Resource
+					err = json.Unmarshal(serviceKeyDetails.Out.Contents(), &serviceKey)
+					Expect(err).NotTo(HaveOccurred())
+
+					return serviceKey.Entity.LastOperation.State
+				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("succeeded"))
+
+				serviceKeyDetails := cf.Cf("curl", serviceKeyMetadata.URL).Wait(Config.DefaultTimeoutDuration())
+				Expect(serviceKeyDetails).To(Exit(0), "failed getting service key details")
+
+				var serviceKey struct {
+					Entity struct {
+						Credentials struct {
+							URI string
+						}
+					}
+				}
+
+				err = json.Unmarshal(serviceKeyDetails.Out.Contents(), &serviceKey)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(serviceKey.Entity.Credentials.URI).Should(ContainSubstring("fake-service://fake-user:fake-password@fake-host:3306/fake-dbname"))
+
+				By("deleting the binding asynchronously")
+				unbindService := cf.Cf(
+					"curl", "-X", "DELETE",
+					fmt.Sprintf("/v2/service_keys/%s?accepts_incomplete=true", serviceKeyMetadata.GUID)).
+					Wait(Config.DefaultTimeoutDuration())
+				Expect(unbindService).To(Exit(0), "failed to asynchronously delete service key")
+				Expect(unbindService).To(Say("delete"))
+				Expect(unbindService).To(Say("in progress"))
+
+				By("waiting for service key to be deleted")
+				Eventually(func() string {
+					serviceKeyDetails := cf.Cf("curl", serviceKeyMetadata.URL).Wait(Config.DefaultTimeoutDuration())
+					Expect(serviceKeyDetails).To(Exit(0), "failed getting service key details")
+
+					var errorResponse ErrorResponse
+					err := json.Unmarshal(serviceKeyDetails.Out.Contents(), &errorResponse)
+					Expect(err).NotTo(HaveOccurred())
+
+					return errorResponse.ErrorCode
+				}, Config.AsyncServiceOperationTimeoutDuration(), ASYNC_OPERATION_POLL_INTERVAL).Should(Equal("CF-ServiceKeyNotFound"))
+			})
+		})
 	})
 })
 
