@@ -638,6 +638,8 @@ var _ = ServicesDescribe("Service Instance Lifecycle", func() {
 					Wait(Config.DefaultTimeoutDuration())
 
 				Expect(bindServiceKey).To(Exit(0), "failed to asynchronously create service key")
+				Expect(bindServiceKey).To(Say("create"))
+				Expect(bindServiceKey).To(Say("in progress"))
 
 				var serviceKeyResource Resource
 				err := json.Unmarshal(bindServiceKey.Out.Contents(), &serviceKeyResource)
